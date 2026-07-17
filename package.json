@@ -82,6 +82,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "prepare": "tsc",
     "prepublishOnly": "tsc"
   },
   "publishConfig": {
