@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# This repo had no CI, and that is how its README came to say "All
+# implementations are TODO stubs" while 53 tests passed and tsc was clean. The
+# job below is the check that keeps the README's Status table honest: if any
+# row of it stops being true, this goes red.
+jobs:
+  build:
+    name: install + typecheck + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Installs ONLY because package.json carries the two `overrides` that pin
+      # @etzhayyim/checkpointer's floating #main refs. Remove them and this step
+      # dies with ERR_PNPM_MISSING_PACKAGE_NAME — kotoba-lang/ipfs redirects to
+      # io-ipfs, a Clojure repo whose package.json has no `name`.
+      - run: pnpm install --frozen-lockfile=false
+
+      - run: npx tsc --noEmit
+      - run: npx vitest run

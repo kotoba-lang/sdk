@@ -1,8 +1,105 @@
-# @etzhayyim/sdk
+# `@etzhayyim/sdk` (repo: `kotoba-lang/sdk`)
 
-kotoba substrate SDK for `etzhayyim/root` open religious-corp apps. Per **[ADR-2605172000](../../90-docs/adr/2605172000-etzhayyim-kotoba-substrate.md)**, apps under `etzhayyim/root` MUST NOT depend on RisingWave or any centralized off-chain database. This SDK wraps the primary substrate — **AT Protocol MST + IPFS + Base L2 anchor** — as one ergonomic API.
+kotoba substrate SDK — **AT Protocol MST + IPFS + Base L2 anchor** behind one
+API. Originally `etzhayyim/com-etzhayyim-sdk`; that name now 301-redirects here.
 
-> **Status**: scaffold v0.0.0. All implementations are TODO stubs. Reference implementation lands when the first open-* app (`open-isco` candidate) ports to the SDK.
+## Status, measured 2026-08-28
+
+This README used to open with:
+
+> **Status**: scaffold v0.0.0. All implementations are TODO stubs.
+
+and closed with "every method throws *not yet implemented*". **Both are false**,
+and had been for long enough that a downstream reader (this session) reported
+the SDK as a stub on the strength of them. What is actually here:
+
+| | |
+|---|---|
+| `pnpm install` **as published** | ❌ **fails** — see *The closure is frozen* |
+| `pnpm install` + the two overrides below | ✅ 21.1 s |
+| `npx tsc --noEmit` | ✅ **exit 0, zero errors** |
+| `npx vitest run` | ✅ **7 files / 53 tests / 0 failures** |
+
+~3,800 lines of real implementation live here — `bi.ts` (1190), `encrypted.ts`
+(717), `index.ts` (655), `abi.ts` (425), `pay.ts` (336),
+`charter-compliance-gate.ts` (273), `donate.ts` (211) — plus twelve ~10-line
+re-export shims (`l2`, `paymaster`, `ipfs`, `pds`, `atproto`, `checkpointer`,
+`crypto`, `pq`, `kdf`, `signal`, `did-signal`, `kotoba-datomic`) pointing at
+six packages that were split out of this repo on 2026-07-01.
+
+## The closure is frozen — do not build new work on it
+
+Those six packages **all moved to Clojure between 2026-07-01 and 2026-08-08**,
+and this SDK still pins each at its last TypeScript commit:
+
+| shim → package | pinned here | that pin is | the package today |
+|---|---|---|---|
+| `l2`, `paymaster` → `@etzhayyim/base-l2` | `14fac05e` | 2026-07-01 TS scaffold | 8 `.clj` / `.cljc`, no `package.json` |
+| `checkpointer` → `@etzhayyim/checkpointer` | `63586c4f` | 2026-07-01 TS scaffold | 18 `.clj` + 10 `.cljc` |
+| `pds`, `atproto` → `@etzhayyim/atproto-client` | `da29075c` | 2026-07-01 TS scaffold | 2 `.cljc` |
+| `ipfs` → `@etzhayyim/ipfs` | `671888e0` | 2026-07-01 TS scaffold | repo renamed `io-ipfs`; `.edn` / `.kotoba` |
+| `crypto`, `pq`, `kdf`, `signal`, `did-signal` → `@etzhayyim/pqh` | `ab728717` | 2026-07-01 | 8 `.clj` + 7 `.cljc` |
+| — → `@etzhayyim/witness-quorum` | `f86d3d73` | 2026-07-01 TS scaffold | 16 `.clj` |
+
+**So this closure cannot be advanced.** Bumping any of those pins does not get
+a newer TypeScript package; it gets a Clojure repository with no npm identity.
+The SDK works only because it is pinned to a moment that no longer exists
+upstream. Design record: superproject **ADR-2608281200**.
+
+New work should target the `.cljc` substrate directly —
+`kotoba-lang/{erc20, eth-crypto, wallet, treasury, pay, chain, cacao, identity,
+io-ipfs}` — which is where all six of those packages actually went.
+`cloud-itonami/warifu`'s `warifu.substrate.usdc` is a worked example: real USDC
+on Base with no dependency on this SDK at all.
+
+## Why it does not install, and the two lines that fix it
+
+`@etzhayyim/checkpointer@63586c4f` is the one edge in the graph that does not
+pin its own dependencies:
+
+```json
+"@etzhayyim/ipfs": "git+https://github.com/kotoba-lang/ipfs.git#main",
+"@etzhayyim/pqh":  "git+https://github.com/kotoba-lang/pqh.git#main"
+```
+
+`#main` silently followed both repos through a rename and a change of language.
+`kotoba-lang/ipfs` now redirects to `io-ipfs`, whose `package.json` has no
+`name` field at all, so the install dies with:
+
+```
+ERR_PNPM_MISSING_PACKAGE_NAME  Can't install
+git+https://github.com/kotoba-lang/ipfs.git#main: Missing package name
+```
+
+This repo now carries `overrides` / `pnpm.overrides` pinning both to the
+revisions the SDK already names elsewhere, which is what makes the numbers at
+the top of this file reproducible.
+
+⚠️ **`overrides` do not propagate to consumers.** They apply only at the root of
+the project being installed. Every consumer of this SDK has to repeat them in
+its own `package.json` — `cloud-itonami/ec` discovered this independently and
+wrote it up as its ADR-0001. The structural fix is to repin
+`@etzhayyim/checkpointer`'s two floating refs; until someone does that, the
+duplication is the cost of using this package.
+
+Also expect, on pnpm ≥ 10.26 and npm ≥ 11.16:
+
+- `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` — these are git deps with a
+  `prepare: tsc`, so they need an `onlyBuiltDependencies` allowlist in
+  `pnpm-workspace.yaml`.
+- `npm error code EALLOWSCRIPTS` — npm 11.16 refuses `--allow-scripts` in the
+  nested invocation it uses to prepare a git dep. Use pnpm.
+
+## Charter coupling
+
+`charter-compliance-gate.ts` and `donate.ts`'s purpose enum (`kisha`, `tithe`,
+`grant`, and the 10 % Public-Fund `TitheRouter` split) encode etzhayyim's
+religious-corporation charter directly into the payment API. Per
+ADR-2608281200 those concepts are being **separated** into an etzhayyim-only
+layer rather than inherited by `cloud-itonami` actors — separated, not deleted,
+since removing a charter from a library carries a legal question that ADR does
+not settle. Nothing has moved yet; this is a note about direction, not a
+completed change.
 
 ## What it replaces
 
@@ -18,7 +115,7 @@ kotoba substrate SDK for `etzhayyim/root` open religious-corp apps. Per **[ADR-2
 | Refund / dispute | `e.escrowOpen(...)` + `e.escrowRelease(...)` Gnosis Safe 2-of-3 |
 | Revenue share (W-9 1099 distribution) | `e.splitDistribute({ splitAddress, amount })` 0xSplits |
 
-## Quick start (target API, scaffold only)
+## Quick start
 
 ```typescript
 import { Etzhayyim } from "@etzhayyim/sdk";
@@ -68,13 +165,29 @@ for await (const ev of e.subscribe<Occupation>({
 
 ## Module layout
 
+Twenty files, not five. Implementations:
+
 ```
 src/
-├── index.ts    # Etzhayyim class, public types, re-exports
-├── pds.ts      # AT Protocol PDS write/read helpers
-├── ipfs.ts     # IPFS pin/fetch helpers
-├── l2.ts       # Base L2 anchor contract helpers
-└── pay.ts      # USDC + ERC-4337 + Superfluid + Safe + 0xSplits (ADR-2605172100)
+├── index.ts                     # Etzhayyim class, public types, re-exports
+├── bi.ts                        # basic-income accounting
+├── encrypted.ts                 # Tahoe-pattern encrypted records
+├── abi.ts                       # ABI encode/decode
+├── pay.ts                       # USDC + ERC-4337 + Superfluid + Safe + 0xSplits
+├── donate.ts                    # donation purposes + TitheRouter split
+└── charter-compliance-gate.ts   # charter checks (etzhayyim-specific — see above)
+```
+
+Re-export shims onto the six relocated packages — each ~10 lines, and each one
+a pointer into the frozen closure:
+
+```
+pds.ts atproto.ts    -> @etzhayyim/atproto-client
+ipfs.ts              -> @etzhayyim/ipfs
+l2.ts paymaster.ts   -> @etzhayyim/base-l2
+checkpointer.ts      -> @etzhayyim/checkpointer
+crypto.ts pq.ts kdf.ts signal.ts did-signal.ts -> @etzhayyim/pqh
+kotoba-datomic/      -> (local)
 ```
 
 Apps MUST import from `@etzhayyim/sdk` only. Direct imports of `@atproto/api`, IPFS client libraries, or `viem` from app code are prohibited (the SDK is the only seam where substrate clients are imported).
@@ -141,17 +254,30 @@ Both default off in v0.1.x to give the council-flow reference impl a clean rollo
 - `viem` — Base L2 RPC + contract interaction
 - `@noble/ciphers` + `@noble/hashes` + `@noble/curves` — AEAD, hash, Ed25519 (pure TS)
 - `@signalapp/libsignal-client` (optional) — Signal Protocol for key-wrap delivery
-- IPFS HTTP API client TBD (`ipfs-http-client` or `helia`; chosen during reference impl)
+- IPFS HTTP API client — resolved: `@etzhayyim/ipfs` (now `kotoba-lang/io-ipfs`)
 
 ## Versioning
 
-Current: `0.0.0` (scaffold). API surface is **not yet stable** — every method throws "not yet implemented". The first stable cut (`0.1.0`) lands together with the first reference-impl app migration.
+`package.json` says `0.1.0-alpha` and the code backs that up (53 passing tests,
+clean typecheck). The old claim here — "`0.0.0` (scaffold) … every method
+throws *not yet implemented*" — was simply never updated.
+
+The surface is not going to stabilise further in TypeScript: see *The closure
+is frozen*.
 
 ## See also
 
-- [ADR-2605172000](../../90-docs/adr/2605172000-etzhayyim-kotoba-substrate.md) — substrate hard rule + per-app migration patterns
-- [ADR-2605171800](../../90-docs/adr/2605171800-langgraph-mst-ipfs-l2-anchor-pipeline.md) — pipeline this SDK packages
-- [ADR-2605170900](../../90-docs/adr/2605170900-etzhayyim-root-adr-canonical-home.md) — etzhayyim/root canonical home rule
+The three ADR links that used to be here were `../../90-docs/adr/…` relative
+paths, which resolved when this was a directory inside `etzhayyim/root` and
+resolve nowhere now. They are named rather than linked:
+
+- **ADR-2608281200** (superproject) — the etzhayyim→cloud-itonami/kotoba-lang
+  coordinate migration; the source of the freeze table above
+- **ADR-2605172000** — substrate hard rule + per-app migration patterns
+- **ADR-2605172100** — payment substrate
+- **ADR-2605171800** — the MST/IPFS/L2-anchor pipeline this SDK packages
+- `cloud-itonami/ec` **ADR-0001** — the same floating-ref breakage, found
+  downstream
 
 ## License
 
