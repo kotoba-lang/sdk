@@ -1,0 +1,18 @@
+# Every @etzhayyim/* dependency is a git dep with `prepare: tsc`, so pnpm >= 10.26
+# refuses to build it without an explicit allowlist:
+#
+#   ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED  ... needs to execute build scripts but
+#   is not in the "onlyBuiltDependencies" allowlist.
+#
+# libsignal-client is listed because it is an OPTIONAL native dependency whose
+# install script pnpm otherwise declines to run; nothing here imports it unless
+# you actually want Signal transport.
+onlyBuiltDependencies:
+  - "@etzhayyim/sdk"
+  - "@etzhayyim/base-l2"
+  - "@etzhayyim/checkpointer"
+  - "@etzhayyim/atproto-client"
+  - "@etzhayyim/ipfs"
+  - "@etzhayyim/pqh"
+  - "@etzhayyim/witness-quorum"
+  - "@signalapp/libsignal-client"

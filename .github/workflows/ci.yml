@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# This repo had no CI, and that is how its README came to say "All
+# implementations are TODO stubs" while 53 tests passed and tsc was clean.
+#
+# It cannot have an ordinary build job: the dependency closure does not install
+# from a cold store, and cannot be repaired in place (README § "The closure
+# cannot be installed"). So the job below CHARACTERISES that breakage instead of
+# pretending it away. It is red when the README is wrong, which is the only
+# thing CI can honestly assert here.
+jobs:
+  frozen:
+    name: the closure is still frozen (install must fail)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # A GitHub runner is a cold store by construction, which is precisely the
+      # condition a developer's warm machine hides.
+      - name: pnpm install must fail while the closure is frozen
+        run: |
+          set +e
+          pnpm install --store-dir "$RUNNER_TEMP/pnpm-cold" 2>&1 | tee install.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "::error::pnpm install SUCCEEDED from a cold store."
+            echo "::error::That is good news and it means this README is now wrong."
+            echo "::error::Someone repaired the dependency closure. Update the Status"
+            echo "::error::table and the 'closure cannot be installed' section, then"
+            echo "::error::replace this job with a real install/typecheck/test build."
+            exit 1
+          fi
+          if ! grep -qE 'ERR_PNPM_PREPARE_PACKAGE|ERR_PNPM_MISSING_PACKAGE_NAME|ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED' install.log; then
+            echo "::error::pnpm install failed, but not for a reason this README documents."
+            echo "::error::The failure mode changed. Read install.log and update the README."
+            exit 1
+          fi
+          echo "Install failed as documented. The closure is still frozen."

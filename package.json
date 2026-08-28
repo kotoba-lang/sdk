@@ -1,7 +1,7 @@
 {
   "name": "@etzhayyim/sdk",
   "version": "0.1.0-alpha",
-  "description": "kotoba substrate SDK for etzhayyim open religious-corp apps: AT Protocol MST + IPFS + Base L2 anchor. Per ADR-2605172000.",
+  "description": "kotoba substrate SDK: AT Protocol MST + IPFS + Base L2 anchor. FROZEN - its dependency closure is pinned to the last TypeScript commits of six packages that have since become Clojure. See README.",
   "license": "Apache-2.0",
   "private": false,
   "type": "module",
@@ -119,9 +119,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/etzhayyim/com-etzhayyim-sdk.git"
+    "url": "https://github.com/kotoba-lang/sdk.git"
   },
-  "homepage": "https://etzhayyim.com",
+  "homepage": "https://github.com/kotoba-lang/sdk",
   "keywords": [
     "etzhayyim",
     "atproto",
@@ -139,5 +139,15 @@
     "kisha",
     "soulbound",
     "did"
-  ]
+  ],
+  "pnpm": {
+    "overrides": {
+      "@etzhayyim/ipfs": "git+https://github.com/kotoba-lang/ipfs.git#671888e08cc42b297c668b6124cf7c5b9d1676f0",
+      "@etzhayyim/pqh": "git+https://github.com/kotoba-lang/pqh.git#ab728717804ec18dafee7262fa83352ffbc1aaf1"
+    }
+  },
+  "overrides": {
+    "@etzhayyim/ipfs": "git+https://github.com/kotoba-lang/ipfs.git#671888e08cc42b297c668b6124cf7c5b9d1676f0",
+    "@etzhayyim/pqh": "git+https://github.com/kotoba-lang/pqh.git#ab728717804ec18dafee7262fa83352ffbc1aaf1"
+  }
 }
