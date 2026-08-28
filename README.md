@@ -15,10 +15,17 @@ the SDK as a stub on the strength of them. What is actually here:
 
 | | |
 |---|---|
-| `pnpm install` **as published** | ❌ **fails** — see *The closure is frozen* |
-| `pnpm install` + the two overrides below | ✅ 21.1 s |
-| `npx tsc --noEmit` | ✅ **exit 0, zero errors** |
-| `npx vitest run` | ✅ **7 files / 53 tests / 0 failures** |
+| `pnpm install` **from a cold store** | ❌ **fails** — see *The closure cannot be installed* |
+| `npx tsc --noEmit` (against an already-populated store) | ✅ **exit 0, zero errors** |
+| `npx vitest run` (same) | ✅ **7 files / 53 tests / 0 failures** |
+
+⚠️ **Read the first row before the other two.** The code compiles and its tests
+pass — but you cannot get to that state from a clean machine. The two green
+rows were obtained on a machine whose pnpm store already held prepared
+artifacts from earlier attempts. On a genuinely cold store (`--store-dir` to an
+empty directory) the install fails, and this document's first draft claimed a
+green install on the strength of a warm one. That is the exact mistake this
+file exists to stop repeating.
 
 ~3,800 lines of real implementation live here — `bi.ts` (1190), `encrypted.ts`
 (717), `index.ts` (655), `abi.ts` (425), `pay.ts` (336),
@@ -52,7 +59,7 @@ io-ipfs}` — which is where all six of those packages actually went.
 `cloud-itonami/warifu`'s `warifu.substrate.usdc` is a worked example: real USDC
 on Base with no dependency on this SDK at all.
 
-## Why it does not install, and the two lines that fix it
+## The closure cannot be installed, and cannot be repaired in place
 
 `@etzhayyim/checkpointer@63586c4f` is the one edge in the graph that does not
 pin its own dependencies:
@@ -64,30 +71,42 @@ pin its own dependencies:
 
 `#main` silently followed both repos through a rename and a change of language.
 `kotoba-lang/ipfs` now redirects to `io-ipfs`, whose `package.json` has no
-`name` field at all, so the install dies with:
+`name` field at all.
+
+**Root `overrides` do not fix this**, and the reason is worth stating exactly,
+because it is easy to believe they do. `checkpointer`'s `prepare` script runs a
+NESTED `npm install` inside the fetched git package, and a root project's
+`overrides` do not reach inside that. So with the overrides in place the cold
+install gets one step further and then dies anyway:
 
 ```
-ERR_PNPM_MISSING_PACKAGE_NAME  Can't install
-git+https://github.com/kotoba-lang/ipfs.git#main: Missing package name
+ERR_PNPM_PREPARE_PACKAGE  Failed to prepare git-hosted package … checkpointer …
+  npm-install: `npm install`  Exit status 1
 ```
 
-This repo now carries `overrides` / `pnpm.overrides` pinning both to the
-revisions the SDK already names elsewhere, which is what makes the numbers at
-the top of this file reproducible.
+**And there is no later revision to move to.** The very next commit to
+`checkpointer`'s `package.json` after the pinned `63586c4f` is `1fcb188`,
+*"chore: delete TypeScript (ADR-2607012200 Step 6; checkpointer Clojure-only)"*
+— it deletes the file. `63586c4f` is the last TypeScript revision that exists,
+and it is the one with the floating refs. There is nothing to repin to.
 
-⚠️ **`overrides` do not propagate to consumers.** They apply only at the root of
-the project being installed. Every consumer of this SDK has to repeat them in
-its own `package.json` — `cloud-itonami/ec` discovered this independently and
-wrote it up as its ADR-0001. The structural fix is to repin
-`@etzhayyim/checkpointer`'s two floating refs; until someone does that, the
-duplication is the cost of using this package.
+This is why the freeze is not a maintenance backlog item. **Anything that needs
+this SDK to install on a fresh machine needs a different substrate**, which is
+what the section above points at.
 
-Also expect, on pnpm ≥ 10.26 and npm ≥ 11.16:
+The `overrides` and `pnpm-workspace.yaml` in this repo are kept anyway: they
+are what let the install get as far as it does, and they are what a consumer
+needs in order to reach the same point. `cloud-itonami/ec` discovered them
+independently and wrote them up as its ADR-0001.
+
+Other errors you will meet on the way, none of them the real problem:
 
 - `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` — these are git deps with a
-  `prepare: tsc`, so they need an `onlyBuiltDependencies` allowlist in
+  `prepare: tsc`, so they need the `onlyBuiltDependencies` allowlist in
   `pnpm-workspace.yaml`.
-- `npm error code EALLOWSCRIPTS` — npm 11.16 refuses `--allow-scripts` in the
+- `ERR_PNPM_MISSING_PACKAGE_NAME` — the floating `#main` above, before the
+  overrides are applied.
+- `npm error code EALLOWSCRIPTS` — npm ≥ 11.16 refuses `--allow-scripts` in the
   nested invocation it uses to prepare a git dep. Use pnpm.
 
 ## Charter coupling
